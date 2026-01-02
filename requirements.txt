@@ -1,0 +1,15 @@
+# --- Interfaz Principal (TUI) ---
+textual>=0.40.0
+
+# --- Motor Gráfico y Overlay (GUI) ---
+# Puedes usar PySide6 o PyQt5. PySide6 es la recomendada oficialmente por Qt.
+PySide6>=6.5.0
+
+# --- Telemetría y Capa Universal ---
+# Esencial para lectura de CPU, RAM y Sensores en cualquier hardware.
+psutil>=5.9.0
+
+# --- Utilidades de Sistema ---
+# Para manejo de rutas y ejecución de procesos (estándar en Python, 
+# pero se asegura compatibilidad de entorno).
+pathlib>=1.0.1
