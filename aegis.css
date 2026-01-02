@@ -1,4 +1,4 @@
-/* CONFIGURACIÓN BASE */
+/* CONFIGURACIÓN BASE - TOKYO NIGHT STYLE */
 Screen {
     background: #0f111a;
 }
@@ -11,9 +11,9 @@ Screen {
 /* PANEL LATERAL */
 #sidebar {
     width: 25%;
-    min-width: 22;
+    min-width: 25;
     background: #1a1b26;
-    border-right: solid #3d59a1;  /* CORREGIDO: de 'vsolid' a 'solid' */
+    border-right: solid #3d59a1;
     padding: 1;
 }
 
@@ -22,13 +22,43 @@ Screen {
     text-style: bold;
     color: #7aa2f7;
     margin-bottom: 1;
+    border-bottom: solid #3d59a1;
 }
 
+/* BOTONES CON ICONOS */
 Button {
     width: 100%;
     height: 3;
     margin-bottom: 1;
     text-style: bold;
+    border: none;
+}
+
+#btn_bench {
+    background: #e0af68;
+    color: #1a1b26;
+}
+
+#btn_gaming {
+    background: #f7768e;
+    color: white;
+}
+
+#btn_eco {
+    background: #9ece6a;
+    color: #1a1b26;
+}
+
+#btn_office {
+    background: #7aa2f7;
+    color: white;
+}
+
+/* EFECTO HOVER CORREGIDO */
+Button:hover {
+    text-style: bold italic underline;
+    background: #3d59a1;
+    color: white;
 }
 
 /* MONITOR DERECHO */
@@ -37,21 +67,31 @@ Button {
     padding: 1;
 }
 
+#title_stats {
+    text-align: center;
+    text-style: bold;
+    color: #bb9af7;
+    margin-bottom: 1;
+}
+
 #temp_cards {
     layout: horizontal;
     height: 5;
     margin-bottom: 1;
 }
 
+/* TARJETAS DE SENSORES */
 .card {
     width: 50%;
-    border: tall #3d59a1;
+    border: round #7aa2f7;
     background: #16161e;
     text-align: center;
     content-align: center middle;
     text-style: bold;
+    margin: 0 1;
 }
 
+/* CUADRÍCULA DE NÚCLEOS */
 #freq_grid {
     layout: grid;
     grid-size: 2 2;
@@ -61,24 +101,28 @@ Button {
 }
 
 .freq_tile {
-    border: solid #414868;   /* CORREGIDO: de 'thin' a 'solid' */
+    border: solid #414868;
     background: #1a1b26;
     text-align: center;
     content-align: center middle;
     color: #c0caf5;
+    margin: 0 1;
 }
 
-Log {
+/* ÁREA DE STATUS */
+#vid_display, #gpu_freq, #service_status, #ram_stats {
     background: #16161e;
+    color: #7dcfff;
+    padding-left: 1;
+    margin-bottom: 1;
+    text-style: italic;
+}
+
+/* LOG DE ACTIVIDAD */
+Log {
+    background: #1a1b26;
     border: tall #414868;
     color: #c0caf5;
     height: 1fr;
+    margin-top: 1;
 }
-
-/* ESTADOS DE TEMPERATURA */
-.temp-safe { color: #9ece6a; }
-.temp-warn { color: #e0af68; }
-.temp-danger { color: #f7768e; }
-
-#btn_bench { background: #e0af68; color: black; }
-#btn_eco { background: #9ece6a; color: black; }

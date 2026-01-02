@@ -9,37 +9,44 @@ from AegisLogger import AegisLogger
 import threading
 import os
 import sys
-
+import pathlib
+import subprocess
+import subprocess
 class AegisApp(App):
     CSS_PATH = "aegis.css"
-    BINDINGS = [("g", "set_mode('gaming')", "Gaming"), ("o", "set_mode('office')", "Office"), ("q", "quit", "Salir")]
-    current_mode = "office"
+    BINDINGS = [
+        ("g", "set_mode('gaming')", "Gaming"), 
+        ("o", "set_mode('office')", "Office"), 
+        ("q", "quit", "Salir")
+    ]
+    
     def __init__(self):
         super().__init__()
-        self.max_temp_seen = 0  # <--- Inicializamos el récord
+        self.max_temp_seen = 0
         self.pico_anunciado = False
+        self.current_active_mode = "office"
+        # Ruta absoluta para evitar problemas con sudo
+        self.path_config = "/home/aegisproject/Desktop/SuiteAegis/last_mode.txt"
 
     def compose(self) -> ComposeResult:
         yield Header()
-        # Este es el contenedor PADRE que on_resize y el CSS necesitan
         with Container(id="main_container"): 
-            
-            # PANEL IZQUIERDO (Botones)
+            # PANEL IZQUIERDO (Botones con sus IDs originales)
             with Vertical(id="sidebar"): 
                 yield Label("🎮 CONTROLES", id="sidebar_title")
-                yield Button("📊 BENCHMARK", id="btn_bench")
-                yield Button("🎮 GAMING", id="btn_gaming")
-                yield Button("🌱 ECO", id="btn_eco")
-                yield Button("📁 OFFICE", id="btn_office")
+                yield Button(" 📊 BENCHMARK", id="btn_bench")
+                yield Button(" 🎮 GAMING", id="btn_gaming")
+                yield Button("⚡ ECO", id="btn_eco")
+                yield Button(" ⚡ OFFICE", id="btn_office")
             
-            # PANEL DERECHO (Sensores)
+            # PANEL DERECHO (Monitor de Sistema)
             with Vertical(id="monitor_area"):
                 yield Label("📊 MONITOR DE SISTEMA", id="title_stats")
                 
                 # Tarjetas de temperatura
                 with Horizontal(id="temp_cards"):
-                    yield Static("🌡️ CPU: -- °C", id="temp_pkg", classes="card")
-                    yield Static("🔥 GPU: -- °C", id="temp_gpu", classes="card")
+                    yield Static("🎮 CPU: -- °C", id="temp_pkg", classes="card")
+                    yield Static("🎮 GPU: -- °C", id="temp_gpu", classes="card")
                 
                 # Cuadrícula de núcleos
                 with Container(id="freq_grid"):
@@ -51,7 +58,7 @@ class AegisApp(App):
                 yield Static("⚡ VID: --", id="vid_display")
                 yield Static("🎮 GPU: -- MHz", id="gpu_freq")
                 yield Label("⚙️ SERVICIO: --", id="service_status", classes="info_label")
-                yield Static("🧠 RAM: -- / -- GB", id="ram_stats", classes="card")
+                yield Static("⚙️ RAM: -- / -- GB", id="ram_stats", classes="card")
                 yield Log(id="main_log")
                 
         yield Footer()
@@ -59,38 +66,52 @@ class AegisApp(App):
     def save_last_mode(self, mode_id):
         """Escribe el modo en un archivo para que AegisBoot lo lea al reiniciar."""
         try:
-           with open("last_mode.txt", "w") as f:
-            f.write(mode_id)
-            os.chmod(path, 0o666)
+            with open(self.path_config, "w") as f:
+                f.write(mode_id)
+            os.chmod(self.path_config, 0o666)
         except Exception as e:
-           if hasattr(self, "query_one"):
+            try:
                 self.query_one("#main_log").write_line(f"⚠️ Error persistencia: {e}")
+            except: pass
+
+    def load_last_mode(self):
+        """Lee el último modo guardado."""
+        try:
+            if os.path.exists(self.path_config):
+                with open(self.path_config, "r") as f:
+                    return f.read().strip()
+        except: pass
+        return "btn_office"
+
     def on_mount(self):
-        self.core, self.db = AegisCore(), AegisDB()
-        self.bench = AegisBench(self.core, self.db, self.query_one("#main_log").write_line)
-        self.set_interval(1, self.update_dashboard)
-        self.logger = AegisLogger()
-        self.set_interval(10, self.record_training_data)
+        # Inicialización de Aegis Components
+        self.core = AegisCore()
         
-        # --- LÓGICA DE PERSISTENCIA ---
+        # Base de Datos con ruta absoluta
+        db_path = pathlib.Path(__file__).parent.resolve() / "aegis_telemetry.db"
+        self.db = AegisDB(str(db_path), self.core)
+        
+        # Logger e IA
+        self.logger = AegisLogger()
+        self.bench = AegisBench(self.core, self.db, self.query_one("#main_log").write_line)
+        
+        # Restaurar perfil previo
         last_mode = self.load_last_mode()
-        self.query_one("#main_log").write_line(f"🔄 Restaurando último perfil: {last_mode}")
-        valid_modes = ["btn_gaming", "btn_eco", "btn_office"]
+        log = self.query_one("#main_log")
+        log.write_line(f"🔄 Restaurando último perfil: {last_mode}")
+        
+        # Validar y aplicar el modo recuperado
+        valid_modes = ["btn_gaming", "btn_eco", "btn_office", "btn_bench"]
         if last_mode not in valid_modes:
             last_mode = "btn_office"
-        
-        log = self.query_one("#main_log")
-        log.write_line(f"🔄 Restaurando perfil: {last_mode}")
+            
+        # Disparamos el clic automáticamente para activar toda la lógica de MSR
         self.call_after_refresh(self.restore_previous_button, last_mode)
-        # Simulamos el clic del botón guardado
-        # Esto disparará toda la lógica de MSR y Performance automáticamente
-        self.post_message(Button.Pressed(self.query_one(f"#{last_mode}")))
-        path = "/home/aegisproject/Desktop/SuiteAegis/last_mode.txt"
-        if not os.path.exists(path):
-            self.save_last_mode("btn_office")
-        # Ahora cargamos el modo con total seguridad
-        last_mode = self.load_last_mode()
-    
+        
+        # Intervalos (Dashboard cada 1s, ML cada 10s)
+        self.set_interval(1, self.update_dashboard)
+        self.set_interval(10, self.record_training_data)
+
     def restore_previous_button(self, mode_id):
         """Dispara el clic del botón guardado con seguridad."""
         try:
@@ -98,15 +119,12 @@ class AegisApp(App):
             self.post_message(Button.Pressed(btn))
         except Exception as e:
             self.query_one("#main_log").write_line(f"⚠️ No se pudo restaurar botón: {e}")
-    
+
     def on_resize(self, event):
-        """Esta función ajusta el diseño cuando cambias el tamaño de la ventana"""
+        """Ajusta el diseño cuando cambias el tamaño de la ventana."""
         try:
-            # Intentamos buscar los elementos
-            # Asegúrate que en tu método compose usaste id="main_container"
             container = self.query_one("#main_container")
             sidebar = self.query_one("#sidebar")
-            
             if event.size.width < 80:
                 container.styles.layout = "vertical"
                 sidebar.styles.width = "100%"
@@ -115,206 +133,152 @@ class AegisApp(App):
                 container.styles.layout = "horizontal"
                 sidebar.styles.width = "25%"
                 sidebar.styles.height = "100%"
-        except Exception:
-            # Si aún no existen los IDs, no hacemos nada y el programa sigue
-            pass
+        except: pass
 
     def update_dashboard(self):
-    
-        # 1. Extracción de Telemetría
+        # 1. Extracción de Telemetría Real
         temps = self.core.get_detailed_temps()
         vid_real = self.core.get_current_vid()
         freqs = self.core.get_all_cpu_freqs()
         gpu_mhz = self.core.get_gpu_freq()
         ram = self.core.get_ram_usage()
 
-        # 2. Lógica Térmica (Fallback Inteligente)
+        # 2. Lógica Térmica (Fallback Inteligente original)
         t_cpu = temps.get('package', 0)
         t_gpu = temps.get('gpu', 0)
-        if t_gpu == 0: t_gpu = t_cpu  # Sin miedo al éxito
+        if t_gpu == 0: t_gpu = t_cpu 
+        
+        if t_cpu > self.max_temp_seen:
+            self.max_temp_seen = t_cpu
 
-        # 3. Actualización de Texto en Pantalla
-        self.query_one("#temp_pkg").update(f"🔥 CPU: {t_cpu:.1f} °C")
+        # 3. Actualización de UI
+        self.query_one("#temp_pkg").update(f"⚡ CPU: {t_cpu:.1f} °C [MAX: {self.max_temp_seen:.1f}]")
         self.query_one("#temp_gpu").update(f"🎮 GPU: {t_gpu:.1f} °C")
-        self.query_one("#ram_stats").update(f"💾 RAM: {ram['used']:.1f} / {ram['total']:.1f} GB")
-        self.query_one("#vid_display").update(f"⚡ VID: {vid_real}")
-        self.query_one("#gpu_freq").update(f"🎮 Reloj GPU: {gpu_mhz}")
+        
+        # Estética de RAM original
         ram_widget = self.query_one("#ram_stats")
-        ram_widget.update(f"🧠 RAM: {ram['used']:.1f} / {ram['total']:.1f} GB")
-        # Estética de alerta: Si queda menos de 1GB libre, avisamos en amarillo
+        ram_widget.update(f"💾 RAM: {ram['used']:.1f} / {ram['total']:.1f} GB")
         if ram['free'] < 1.0:
             ram_widget.styles.color = "yellow"
         else:
             ram_widget.styles.color = "white"
-        # 4. Cuadrícula de Núcleos
+
+        self.query_one("#vid_display").update(f"⚡ VID: {vid_real}")
+        self.query_one("#gpu_freq").update(f"🎮 Reloj GPU: {gpu_mhz} MHz")
+
+        # Cuadrícula de Núcleos (Dinámica)
         for i, f in enumerate(freqs):
             try:
                 self.query_one(f"#cpu{i}").update(f"⚡ C{i}: {f:.0f} MHz")
             except: pass
 
-        # 5. Alerta "Sin Miedo al Éxito"
+        # 4. Alerta "Sin Miedo al Éxito" (Lógica original)
         log = self.query_one("#main_log")
         if t_cpu > 90:
             self.query_one("#temp_pkg").styles.color = "red"
-            if not getattr(self, "pico_anunciado", False):
+            if not self.pico_anunciado:
                 log.write_line("🔥 [ALERTA]: ¡90°C detectados! Manteniendo potencia...")
                 log.write_line("🚀 [AEGIS]: ¡SIN MIEDO AL ÉXITO!")
                 self.pico_anunciado = True
         elif t_cpu < 85:
             self.query_one("#temp_pkg").styles.color = "white"
             self.pico_anunciado = False
+
+        # 5. Estado del Servicio Systemd
         try:
-            import subprocess
-            # Consultamos a systemd si el servicio existe y está habilitado
             check = subprocess.run(["systemctl", "is-enabled", "aegis-init.service"], 
                                    capture_output=True, text=True)
             status_widget = self.query_one("#service_status")
-            
             if "enabled" in check.stdout:
                 status_widget.update("⚙️ SERVICIO: [green]ACTIVO (AUTOMÁTICO)[/]")
             else:
                 status_widget.update("⚙️ SERVICIO: [yellow]MANUAL[/]")
-        except:
-            pass
-    def record_training_data(self):
-     # Extraemos los datos actuales que ya calculamos en update_dashboard
-     temps = self.core.get_detailed_temps()
-     ram = self.core.get_ram_usage()
-     freqs = self.core.get_all_cpu_freqs()
-     avg_freq = sum(freqs) / len(freqs) if freqs else 0
-     vid = self.core.get_current_vid()
-
-     # El 'label' es el modo que TÚ tienes activo ahora (Gaming, Eco, etc.)
-     # Esto es lo que la IA usará para aprender qué modo prefieres en qué estado.
-     current_label = getattr(self, "current_active_mode", "office")
-
-     self.logger.log_session(
-         temps.get('package', 0),
-         temps.get('gpu', 0),
-         ram['used'],
-         avg_freq,
-         vid,
-         current_label
-     )
-    def auto_monitor_ml(self):
-        # Esta función puede correr en un intervalo más largo (ej. 10 seg)
-        res = self.watcher.analyze_and_run()
-        self.query_one("#main_log").write_line(f"[ML] {res}")
-
-    def update_stats(self):
-        # Actualiza la UI con datos frescos
-        temp = self.core.get_temp()
-        vid = self.core.get_current_vid()
-        
-        self.query_one("#temp_display").update(f"🌡️ Temp: {temp:.1f} °C")
-        self.query_one("#vid_display").update(f"⚡ VID Actual: {vid}")
-        
-        # Ejecuta el monitor de ML (cada 10 seg aprox usando un contador interno o manteniendo el otro intervalo)
-        res = self.watcher.analyze_and_run()
-        if res: self.query_one("#main_log").write_line(f"[ML] {res}")
-
-    def auto_monitor(self):
-        res = self.watcher.analyze_and_run()
-        self.query_one("#main_log").write_line(f"[ML] {res} | Temp: {self.core.get_temp()}°C")
-
-    def action_set_mode(self, mode):
-        if mode == "gaming": self.core.apply_profile(1, 30, 1600)
-        else: self.core.apply_profile(0, 22, 2500)
-        self.query_one("#main_log").write_line(f"🚀 Manual: {mode.upper()}")
+        except: pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        import subprocess  # Aseguramos que esté disponible
         log_widget = self.query_one("#main_log")
         btn_id = event.button.id
-        selected_mode = event.button.id
-        self.current_mode = selected_mode
-        self.save_last_mode(selected_mode)
         self.current_active_mode = btn_id 
         self.save_last_mode(btn_id)
-        
 
-        # 1. MODO BENCHMARK
-        if btn_id == "btn_bench":
-            log_widget.write_line("🚀 Lanzando estrés de núcleos (AegisBench)...")
-            threading.Thread(target=self.bench.find_sweet_spot, daemon=True).start()
-
-        # 2. MODO GAMING (Cambiado a elif para mantener la cadena)
-        elif btn_id == "btn_gaming":
-            log_widget.write_line("⚔️ DESPLEGANDO PERFIL ESTABLE...")
-            try:
-                # 1. Limpieza de RAM (Tu comando original)
-                subprocess.run("sync; echo 3 | sudo tee /proc/sys/vm/drop_caches", shell=True, check=True)
-
-                # 2. Aplicamos el voltaje 'mágico' que encontraste (VID 0x3F)
-                # Este es el que evita los micro-cortes
-                subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003F09"], check=True)
-                
-                # 3. Forzar frecuencia máxima (Performance)
-                self.core.force_max_performance()
-                
-                # 4. Apagar Turbo para evitar stuttering
-                self.core.set_turbo_boost(False)
-                
-                log_widget.write_line("🚀 Voltaje 1.15V (Sweet Spot) | Frecuencia MAX")
-                log_widget.write_line("🎧 Audio fluido garantizado.")
-                
-                self.save_last_mode("btn_gaming")
-            except Exception as e:
-                log_widget.write_line(f"❌ Error de permisos o ejecución: {e}")
-        # 3. MODO ECO
-        elif btn_id == "btn_eco":
-            log_widget.write_line("🍃 MODO INTELIGENTE: Maximizando eficiencia...")
-            try:
-                if self.core.set_intelligent_eco():
-                    log_widget.write_line("✅ Escala dinámica activa + Undervolt 1.15V")
-                    log_widget.write_line("❄️ El ventilador debería reducir su velocidad pronto.")
-            except Exception as e:
-                log_widget.write_line(f"❌ Error ECO: {e}")
-                os.system("echo performance | sudo tee /sys/class/scsi_host/host*/link_power_management_policy")
-                self.core.force_max_performance()
-                self.core.set_turbo_boost(False)
-        # 4. MODO OFFICE
-        elif btn_id == "btn_office":
-            log_widget.write_line("💼 MODO OFFICE: Buscando el equilibrio térmico...")
-            try:
-                # Voltaje equilibrado 1.2500V (VID 0x30)
-                subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003009"], check=True)
-                subprocess.run("echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", shell=True, check=True)
-                log_widget.write_line("✅ Perfil equilibrado aplicado.")
-            except Exception as e:
-                log_widget.write_line(f"❌ Error en Office: {e}")
-    def save_last_mode(self, mode_id):
-        """Guarda el modo y asegura permisos universales."""
-        path = "last_mode.txt" # Se crea en la misma carpeta del script
         try:
-            with open("last_mode.txt", "w") as f:
-                f.write(mode_id)
-            os.chmod(path, 0o666) # Permisos de lectura/escritura para todos
-        except Exception as e:
-            self.query_one("#main_log").write_line(f"⚠️ Error persistencia: {e}")
+            # 1. MODO BENCHMARK
+            if btn_id == "btn_bench":
+                log_widget.write_line("🚀 Lanzando estrés de núcleos (AegisBench)...")
+                threading.Thread(target=self.bench.find_sweet_spot, daemon=True).start()
 
-    def load_last_mode(self):
-        """Lee el último modo guardado."""
-        if os.path.exists("last_mode.txt"):
-            with open("last_mode.txt", "r") as f:
-                return f.read().strip()
-        return "btn_office" # Modo por defecto
+            # 2. MODO GAMING: El "Sweet Spot" Dinámico (1.8 - 2.0 GHz)
+            elif btn_id == "btn_gaming":
+                log_widget.write_line("⚔️ MODO GAMING: Rango dinámico 1.8GHz - 2.0GHz...")
+                # 1. Gobernador que permite escala
+                subprocess.run("echo ondemand | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", shell=True)
+                # 2. Definir Rango (1.8 a 2.0)
+                subprocess.run("echo 1800000 | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq", shell=True)
+                subprocess.run("echo 2000000 | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq", shell=True)
+                # 3. Boost OFF para evitar saltos a 2.2GHz
+                subprocess.run("echo 0 | sudo tee /sys/devices/system/cpu/cpufreq/boost", shell=True)
+                # 4. Voltaje inicial estable (1.15V)
+                subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003F09"], check=True)
+                subprocess.Popen(["./dist/AegisMonitor"])
+                log_widget.write_line("✅ Rango 1.8-2.0GHz Activo | Voltaje: 1.15V")
+
+            # 3. MODO ECO: Ahorro Real (1.0 GHz)
+            elif btn_id == "btn_eco":
+                log_widget.write_line("🍃 MODO ECO: Capando a 1.0GHz (Ahorro total)...")
+                subprocess.run("echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", shell=True)
+                # Forzamos el máximo a 1.0GHz para que no intente subir al turbo
+                subprocess.run("echo 1000000 | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq", shell=True)
+                subprocess.run("echo 1000000 | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq", shell=True)
+                # Voltaje de ultra-bajo consumo (VID 0x4D)
+                subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100004D09"], check=True)
+                log_widget.write_line("✅ Sistema limitado a 1.0GHz para evitar calor.")
+
+            # 4. MODO OFFICE: Tu configuración estable de 1.6 GHz
+            elif btn_id == "btn_office":
+                log_widget.write_line("💼 MODO OFFICE: 1.6GHz estables | VID: 1.25V")
+                subprocess.run("echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", shell=True)
+                subprocess.run("echo 1600000 | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq", shell=True)
+                subprocess.run("echo 1600000 | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq", shell=True)
+                # Voltaje equilibrado (0x30 = ~1.25V)
+                subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003009"], check=True)
+                log_widget.write_line("✅ Perfil 1.6GHz aplicado.")
+
+        except Exception as e:
+            log_widget.write_line(f"❌ Error aplicando perfil {btn_id}: {e}")
+
+    def record_training_data(self):
+        """Registra datos para la IA cada 10 segundos."""
+        try:
+            temps = self.core.get_detailed_temps()
+            ram = self.core.get_ram_usage()
+            freqs = self.core.get_all_cpu_freqs()
+            avg_freq = sum(freqs) / len(freqs) if freqs else 0
+            vid = self.core.get_current_vid()
+            current_label = self.current_active_mode
+
+            self.logger.log_session(
+                temps.get('package', 0),
+                temps.get('gpu', 0),
+                ram['used'],
+                avg_freq,
+                vid,
+                current_label
+            )
+        except: pass
+
 if __name__ == "__main__":
-    # Si ejecutamos 'python main.py --apply', solo aplica el último perfil y sale
+    # Soporte para --apply (AegisBoot)
     if len(sys.argv) > 1 and sys.argv[1] == "--apply":
         app = AegisApp()
-        core = AegisCore()
         last_mode = app.load_last_mode()
         
-        # Diccionario de comandos rápidos según el modo guardado
         if last_mode == "btn_gaming":
-            import subprocess
-            subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003809"])
-            core.force_max_performance()
+            subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003F09"])
+            subprocess.run("echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", shell=True)
         elif last_mode == "btn_office":
-            core.set_intelligent_eco() # O el comando que prefieras para office
+            subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003009"])
+            subprocess.run("echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", shell=True)
             
         print(f"🛡️ Aegis: Perfil '{last_mode}' aplicado automáticamente.")
     else:
-        # Si no hay argumentos, abre la interfaz normal para jugar
         AegisApp().run()

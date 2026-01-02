@@ -1,15 +1,17 @@
 import sqlite3, pathlib
 
 class AegisDB:
-    def __init__(self):
-        self.db_path = pathlib.Path(__file__).parent.resolve() / "aegis_vault.db"
+    def __init__(self, db_path, core):
+        self.db_path = db_path
+        self.core = core
+        self.max_temp_seen = 0
         self._bootstrap()
 
     def _bootstrap(self):
         """Crea las tablas y carga valores por defecto si no existen."""
         with sqlite3.connect(self.db_path) as conn:
             # Tabla de logs
-            conn.execute("CREATE TABLE IF NOT EXISTS telemetry (timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, temp REAL, mode TEXT)")
+            conn.execute("CREATE TABLE IF NOT EXISTS telemetry (timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, temp REAL, mode TEXT, max_temp REAL)")
             # Tabla de configuración de perfiles
             conn.execute("CREATE TABLE IF NOT EXISTS telemetry_config (mode TEXT PRIMARY KEY, pstate INTEGER, vid INTEGER, freq INTEGER)")
             
@@ -38,3 +40,30 @@ class AegisDB:
             cursor = conn.cursor()
             cursor.execute("SELECT pstate, vid, freq FROM telemetry_config WHERE mode = ?", (mode,))
             return cursor.fetchone()
+   
+    def insert_reading(self, temp, mode, max_temp):
+        """Inserta datos para el entrenamiento del ML."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "INSERT INTO telemetry (temp, mode, max_temp) VALUES (?, ?, ?)",
+                    (temp, mode, max_temp)
+                )
+        except Exception as e:
+            print(f"Error DB: {e}")
+    
+    def record_training_data(self):
+        temps = self.core.get_detailed_temps()
+        t_cpu = temps.get('package', 0)
+        current_label = getattr(self, "current_active_mode", "office")
+
+        # Guardamos en la base de datos para el entrenamiento futuro
+        # Asegúrate que AegisDB tenga el método insert_reading(temp, modo, max_temp)
+        try:
+            self.db.insert_reading(t_cpu, current_label, self.max_temp_seen)
+        except:
+            # Si tu DB aún no tiene max_temp, usamos el logger viejo por ahora
+            ram = self.core.get_ram_usage()
+            freqs = self.core.get_all_cpu_freqs()
+            avg_freq = sum(freqs) / len(freqs) if freqs else 0
+            self.logger.log_session(t_cpu, temps.get('gpu', 0), ram['used'], avg_freq, self.core.get_current_vid(), current_label)
