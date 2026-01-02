@@ -1,0 +1,5 @@
+venv/
+__pycache__/
+*.pyc
+last_mode.txt
+aegis_training_data.csv
