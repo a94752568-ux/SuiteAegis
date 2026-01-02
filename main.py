@@ -13,7 +13,7 @@ import sys
 class AegisApp(App):
     CSS_PATH = "aegis.css"
     BINDINGS = [("g", "set_mode('gaming')", "Gaming"), ("o", "set_mode('office')", "Office"), ("q", "quit", "Salir")]
-    
+    current_mode = "office"
     def __init__(self):
         super().__init__()
         self.max_temp_seen = 0  # <--- Inicializamos el récord
@@ -57,36 +57,47 @@ class AegisApp(App):
         yield Footer()
 
     def save_last_mode(self, mode_id):
-        """Guarda el modo y fuerza permisos 666 para que el servicio lo lea."""
+        """Escribe el modo en un archivo para que AegisBoot lo lea al reiniciar."""
         try:
-            path = "/home/aegisproject/Desktop/SuiteAegis/last_mode.txt"
-            with open(path, "w") as f:
-                f.write(mode_id)
-            # Forzamos permisos para que el sistema (root) y tú puedan usarlo
-            import os
+           with open("last_mode.txt", "w") as f:
+            f.write(mode_id)
             os.chmod(path, 0o666)
         except Exception as e:
-            self.query_one("#main_log").write_line(f"⚠️ Error al guardar modo: {e}")
-   
+           if hasattr(self, "query_one"):
+                self.query_one("#main_log").write_line(f"⚠️ Error persistencia: {e}")
     def on_mount(self):
         self.core, self.db = AegisCore(), AegisDB()
         self.bench = AegisBench(self.core, self.db, self.query_one("#main_log").write_line)
         self.set_interval(1, self.update_dashboard)
         self.logger = AegisLogger()
         self.set_interval(10, self.record_training_data)
+        
         # --- LÓGICA DE PERSISTENCIA ---
         last_mode = self.load_last_mode()
         self.query_one("#main_log").write_line(f"🔄 Restaurando último perfil: {last_mode}")
+        valid_modes = ["btn_gaming", "btn_eco", "btn_office"]
+        if last_mode not in valid_modes:
+            last_mode = "btn_office"
         
+        log = self.query_one("#main_log")
+        log.write_line(f"🔄 Restaurando perfil: {last_mode}")
+        self.call_after_refresh(self.restore_previous_button, last_mode)
         # Simulamos el clic del botón guardado
         # Esto disparará toda la lógica de MSR y Performance automáticamente
         self.post_message(Button.Pressed(self.query_one(f"#{last_mode}")))
         path = "/home/aegisproject/Desktop/SuiteAegis/last_mode.txt"
         if not os.path.exists(path):
             self.save_last_mode("btn_office")
-        
         # Ahora cargamos el modo con total seguridad
         last_mode = self.load_last_mode()
+    
+    def restore_previous_button(self, mode_id):
+        """Dispara el clic del botón guardado con seguridad."""
+        try:
+            btn = self.query_one(f"#{mode_id}", Button)
+            self.post_message(Button.Pressed(btn))
+        except Exception as e:
+            self.query_one("#main_log").write_line(f"⚠️ No se pudo restaurar botón: {e}")
     
     def on_resize(self, event):
         """Esta función ajusta el diseño cuando cambias el tamaño de la ventana"""
@@ -215,7 +226,13 @@ class AegisApp(App):
         import subprocess  # Aseguramos que esté disponible
         log_widget = self.query_one("#main_log")
         btn_id = event.button.id
-         
+        selected_mode = event.button.id
+        self.current_mode = selected_mode
+        self.save_last_mode(selected_mode)
+        self.current_active_mode = btn_id 
+        self.save_last_mode(btn_id)
+        
+
         # 1. MODO BENCHMARK
         if btn_id == "btn_bench":
             log_widget.write_line("🚀 Lanzando estrés de núcleos (AegisBench)...")
@@ -265,7 +282,7 @@ class AegisApp(App):
         """Guarda el modo y asegura permisos universales."""
         path = "last_mode.txt" # Se crea en la misma carpeta del script
         try:
-            with open(path, "w") as f:
+            with open("last_mode.txt", "w") as f:
                 f.write(mode_id)
             os.chmod(path, 0o666) # Permisos de lectura/escritura para todos
         except Exception as e:
