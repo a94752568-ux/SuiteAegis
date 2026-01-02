@@ -159,21 +159,24 @@ class AegisCore:
             return False
         
     def set_intelligent_eco(self):
-        """Configura escala dinámica agresiva para máxima eficiencia."""
+        """Modo de ahorro real: Frecuencia dinámica y voltaje bajo."""
         try:
-            import subprocess
-            # 1. Usamos 'ondemand' para que la frecuencia sea dinámica (sube y baja según carga)
-            # Si tu sistema usa intel_pstate/amd_pstate, se usa 'powersave' que es dinámico ahí.
+            # Gobernador ondemand para que baje la velocidad si no haces nada
             subprocess.run("echo ondemand | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", shell=True)
-            
-            # 2. Seteamos un voltaje de reposo ultra bajo (VID 0x3F = ~1.15V)
-            # Esto hará que incluso a 1.6GHz el calor generado sea mínimo
+            # Mantenemos tu voltaje estable
             subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003F09"])
-            
-            # 3. Ajustamos el 'up_threshold' para que el CPU solo suba de frecuencia 
-            # cuando la carga sea realmente alta (>85%)
-            subprocess.run("echo 85 | sudo tee /sys/devices/system/cpu/cpufreq/ondemand/up_threshold", shell=True)
-            
             return True
         except:
+            return False
+    
+    def set_turbo_boost(self, enable: bool):
+        """Bloquea el Turbo para estabilidad total. El comando wrmsr es el más compatible."""
+        try:
+            # Registro 0xc0010015 bit 25 controla el Turbo
+            # 0x01000000 = Turbo OFF (Fluidez total)
+            value = "0x01000000" if not enable else "0x00000000"
+            import subprocess
+            subprocess.run(["sudo", "wrmsr", "-a", "0xc0010015", value], check=True)
+            return True
+        except Exception:
             return False

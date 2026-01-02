@@ -236,28 +236,31 @@ class AegisApp(App):
         # 1. MODO BENCHMARK
         if btn_id == "btn_bench":
             log_widget.write_line("🚀 Lanzando estrés de núcleos (AegisBench)...")
-            threading.Thread(target=self.bench.run_full_test, daemon=True).start()
+            threading.Thread(target=self.bench.find_sweet_spot, daemon=True).start()
 
         # 2. MODO GAMING (Cambiado a elif para mantener la cadena)
         elif btn_id == "btn_gaming":
-            log_widget.write_line("⚔️ PREPARANDO CAMPO DE BATALLA...")
+            log_widget.write_line("⚔️ DESPLEGANDO PERFIL ESTABLE...")
             try:
-                # 1. Limpieza de Memoria RAM (Caché de Linux)
-                # El valor '3' libera PageCache, dentries e inodes.
+                # 1. Limpieza de RAM (Tu comando original)
                 subprocess.run("sync; echo 3 | sudo tee /proc/sys/vm/drop_caches", shell=True, check=True)
-                log_widget.write_line("🧹 RAM purgada y lista para Albion.")
 
-                # 2. Undervolt y Performance
-                subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003809"], check=True)
+                # 2. Aplicamos el voltaje 'mágico' que encontraste (VID 0x3F)
+                # Este es el que evita los micro-cortes
+                subprocess.run(["sudo", "wrmsr", "-a", "0xC0010064", "0x8000012100003F09"], check=True)
+                
+                # 3. Forzar frecuencia máxima (Performance)
                 self.core.force_max_performance()
                 
-                log_widget.write_line("🚀 Frecuencias al MAX | Voltaje 1.2000V")
-                log_widget.write_line("🛡️  ¡SIN MIEDO AL ÉXITO, MAURICIO!")
+                # 4. Apagar Turbo para evitar stuttering
+                self.core.set_turbo_boost(False)
+                
+                log_widget.write_line("🚀 Voltaje 1.15V (Sweet Spot) | Frecuencia MAX")
+                log_widget.write_line("🎧 Audio fluido garantizado.")
                 
                 self.save_last_mode("btn_gaming")
             except Exception as e:
-                log_widget.write_line(f"❌ Fallo en despliegue: {e}")
-
+                log_widget.write_line(f"❌ Error de permisos o ejecución: {e}")
         # 3. MODO ECO
         elif btn_id == "btn_eco":
             log_widget.write_line("🍃 MODO INTELIGENTE: Maximizando eficiencia...")
@@ -267,7 +270,9 @@ class AegisApp(App):
                     log_widget.write_line("❄️ El ventilador debería reducir su velocidad pronto.")
             except Exception as e:
                 log_widget.write_line(f"❌ Error ECO: {e}")
-
+                os.system("echo performance | sudo tee /sys/class/scsi_host/host*/link_power_management_policy")
+                self.core.force_max_performance()
+                self.core.set_turbo_boost(False)
         # 4. MODO OFFICE
         elif btn_id == "btn_office":
             log_widget.write_line("💼 MODO OFFICE: Buscando el equilibrio térmico...")
